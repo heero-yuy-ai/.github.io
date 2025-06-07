@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ブロック崩しゲーム</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'M PLUS Rounded 1c', sans-serif;
+            touch-action: manipulation; /* スマホでの操作性を向上 */
+        }
+        canvas {
+            background: #1a202c; /* bg-gray-900 */
+            display: block;
+            border-radius: 0.5rem;
+            cursor: none; /* カーソルを非表示にして没入感を出す */
+        }
+        .game-container {
+            position: relative;
+            width: 100%;
+            max-width: 480px; /* canvasの幅に合わせる */
+        }
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.75);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            border-radius: 0.5rem;
+        }
+    </style>
+</head>
+<body class="text-white flex flex-col items-center justify-center min-h-screen p-4" style="background-image: url('artist_sincos, 1girl, color,  s-1079892025.png'); background-size: cover; background-position: center;">
+
+    <div class="text-center mb-4">
+        <h1 class="text-4xl font-bold text-cyan-300">おぺれーしょん・めてお！</h1>
+        <p class="text-gray-400">すべてのブロックを破壊せよ！</p>
+    </div>
+
+    <div class="game-container">
+        <div class="flex justify-between w-full mb-2 text-xl px-2">
+            <div class="text-orange-400">スコア: <span id="score">0</span></div>
+            <div class="text-orange-400">残りライフ: <span id="lives">3</span></div>
+        </div>
+        <canvas id="gameCanvas" width="480" height="320"></canvas>
+
+        <!-- ゲームクリア画面 -->
+        <div id="game-clear-screen" class="overlay hidden">
+            <h2 class="text-5xl font-bold text-yellow-300 mb-4">クリア！</h2>
+            <img id="clear-image" src="https://placehold.co/300x200/e0f2fe/0ea5e9?text=おめでとう！" alt="クリア画像" class="rounded-lg shadow-lg mb-4"
+                 onerror="this.onerror=null;this.src='https://placehold.co/300x200/e0f2fe/0ea5e9?text=画像読込失敗';">
+            <button onclick="document.location.reload()" class="bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-2 px-6 rounded-lg text-lg">もう一度プレイ</button>
+        </div>
+
+        <!-- ゲームオーバー画面 -->
+        <div id="game-over-screen" class="overlay hidden">
+            <h2 class="text-5xl font-bold text-red-500 mb-8">ゲームオーバー</h2>
+            <button onclick="document.location.reload()" class="bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-2 px-6 rounded-lg text-lg">リトライ</button>
+        </div>
+        
+        <!-- スタート画面 -->
+        <div id="start-screen" class="overlay">
+            <h2 class="text-3xl font-bold text-white mb-8">マウスでパドルを操作</h2>
+            <button id="start-button" class="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-8 rounded-lg text-2xl animate-pulse">ゲームスタート</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // UI要素
+        const scoreDisplay = document.getElementById('score');
+        const livesDisplay = document.getElementById('lives');
+        const startScreen = document.getElementById('start-screen');
+        const gameClearScreen = document.getElementById('game-clear-screen');
+        const gameOverScreen = document.getElementById('game-over-screen');
+        const startButton = document.getElementById('start-button');
+        
+        // ゲームの状態
+        let gameRunning = false;
+        let score = 0;
+        let lives = 3;
+
+        // ボールの設定
+        let ballRadius = 10;
+        let x = canvas.width / 2;
+        let y = canvas.height - 30;
+        let dx = 2;
+        let dy = -2;
+
+        // パドルの設定
+        let paddleHeight = 10;
+        let paddleWidth = 75;
+        let paddleX = (canvas.width - paddleWidth) / 2;
+
+        // ブロックの設定
+        let brickRowCount = 3;
+        let brickColumnCount = 5;
+        let brickWidth = 75;
+        let brickHeight = 20;
+        let brickPadding = 10;
+        let brickOffsetTop = 30;
+        let brickOffsetLeft = 30;
+        let bricks = [];
+        const brickColors = ['#06b6d4', '#22d3ee', '#67e8f9']; // cyan-600, 500, 400
+
+        function setupBricks() {
+            bricks = [];
+            for (let c = 0; c < brickColumnCount; c++) {
+                bricks[c] = [];
+                for (let r = 0; r < brickRowCount; r++) {
+                    bricks[c][r] = { x: 0, y: 0, status: 1, color: brickColors[r] };
+                }
+            }
+        }
+
+        // イベントリスナー
+        document.addEventListener('mousemove', mouseMoveHandler, false);
+        document.addEventListener('touchmove', touchMoveHandler, false);
+        startButton.addEventListener('click', startGame, false);
+
+
+        function mouseMoveHandler(e) {
+            let relativeX = e.clientX - canvas.getBoundingClientRect().left;
+            if (relativeX > 0 && relativeX < canvas.width) {
+                paddleX = relativeX - paddleWidth / 2;
+            }
+        }
+        
+        function touchMoveHandler(e) {
+            e.preventDefault(); // 画面のスクロールを防ぐ
+            if (e.touches.length > 0) {
+                let relativeX = e.touches[0].clientX - canvas.getBoundingClientRect().left;
+                 if (relativeX > 0 && relativeX < canvas.width) {
+                    paddleX = relativeX - paddleWidth / 2;
+                }
+            }
+        }
+
+        function collisionDetection() {
+            for (let c = 0; c < brickColumnCount; c++) {
+                for (let r = 0; r < brickRowCount; r++) {
+                    let b = bricks[c][r];
+                    if (b.status == 1) {
+                        if (x > b.x && x < b.x + brickWidth && y > b.y && y < b.y + brickHeight) {
+                            dy = -dy;
+                            b.status = 0;
+                            score++;
+                            scoreDisplay.textContent = score;
+                            if (score == brickRowCount * brickColumnCount) {
+                                gameClear();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        function drawBall() {
+            ctx.beginPath();
+            ctx.arc(x, y, ballRadius, 0, Math.PI * 2);
+            ctx.fillStyle = '#fef08a'; // yellow-200
+            ctx.fill();
+            ctx.closePath();
+        }
+
+        function drawPaddle() {
+            ctx.beginPath();
+            ctx.rect(paddleX, canvas.height - paddleHeight, paddleWidth, paddleHeight);
+            ctx.fillStyle = '#a5f3fc'; // cyan-200
+            ctx.fill();
+            ctx.closePath();
+        }
+
+        function drawBricks() {
+            for (let c = 0; c < brickColumnCount; c++) {
+                for (let r = 0; r < brickRowCount; r++) {
+                    if (bricks[c][r].status == 1) {
+                        let brickX = (c * (brickWidth + brickPadding)) + brickOffsetLeft;
+                        let brickY = (r * (brickHeight + brickPadding)) + brickOffsetTop;
+                        bricks[c][r].x = brickX;
+                        bricks[c][r].y = brickY;
+                        ctx.beginPath();
+                        ctx.rect(brickX, brickY, brickWidth, brickHeight);
+                        ctx.fillStyle = bricks[c][r].color;
+                        ctx.fill();
+                        ctx.closePath();
+                    }
+                }
+            }
+        }
+        
+        function resetBallAndPaddle() {
+            x = canvas.width / 2;
+            y = canvas.height - 30;
+            dx = 2;
+            dy = -2;
+            paddleX = (canvas.width - paddleWidth) / 2;
+        }
+
+        function draw() {
+            if (!gameRunning) return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawBricks();
+            drawBall();
+            drawPaddle();
+            collisionDetection();
+
+            // 壁との衝突判定
+            if (x + dx > canvas.width - ballRadius || x + dx < ballRadius) {
+                dx = -dx;
+            }
+            if (y + dy < ballRadius) {
+                dy = -dy;
+            } else if (y + dy > canvas.height - ballRadius) {
+                // パドルとの衝突判定
+                if (x > paddleX && x < paddleX + paddleWidth) {
+                    dy = -dy;
+                } else {
+                    lives--;
+                    livesDisplay.textContent = lives;
+                    if (!lives) {
+                        gameOver();
+                    } else {
+                        resetBallAndPaddle();
+                    }
+                }
+            }
+
+            x += dx;
+            y += dy;
+
+            requestAnimationFrame(draw);
+        }
+        
+        function startGame() {
+            gameRunning = true;
+            startScreen.classList.add('hidden');
+            setupBricks();
+            draw();
+        }
+
+        function gameOver() {
+            gameRunning = false;
+            gameOverScreen.classList.remove('hidden');
+        }
+
+        function gameClear() {
+            gameRunning = false;
+            gameClearScreen.classList.remove('hidden');
+            // ここでクリア時の特別な画像などを読み込む
+            const clearImage = document.getElementById('clear-image');
+            // 例として、かわいい動物のイラストにしてみます。
+           clearImage.src = 'artist_sincos, 1girl, color, nsfw, 1boy s-2889632285.png';
+        }
+
+        // 初期描画
+        function init() {
+            drawBricks();
+            drawBall();
+            drawPaddle();
+        }
+        
+        // 初回ロード時に一度だけレンガの位置を計算
+        setupBricks();
+    </script>
+
+</body>
+</html>
